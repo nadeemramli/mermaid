@@ -1,0 +1,125 @@
+graph TD
+    subgraph Datastack["Data Stack"]
+        direction TB
+        %% --- Define the Sources ---
+            subgraph Stack["Martech Stack"]
+                direction LR
+                subgraph "Acquisition"
+                    MetaAds["Meta Ads<br/>(Facebook/Instagram)"]
+                    TikTokAds["TikTok Ads"]
+                    GoogleAds["Google Ads<br/>(Search/YouTube)"]
+                end
+                subgraph Marketplace["Marketplace"]
+                    ManualData["Manual Data<br/>(Sheets, etc)"]
+                    Shopee[Shopee]
+                end
+
+                subgraph Sources["On-Site Event Tracking"]
+                    subgraph Website["Web-based Platform"]
+                        Shopify[Shopify]
+                        WooCommerce["WordPress (WooCommerce)"]  
+                    end
+                    
+                    subgraph Conversion["Conversion"]
+                        GA4["Google Analytics<br/>(GA4)"]
+                        PostHog[PostHog Cloud]
+                    end
+                    
+                    Website["Website<br/>(Shopify/WordPress)"]
+                    GTM[Google Tag Manager]
+                    
+                    subgraph Pixel["Pixels"]
+                        MetaPixel["Meta Pixel"]
+                        TikTokPixel["TikTok Pixel"]
+                    end
+                    subgraph Tag["Tags"]
+                        GoogleTag["Google Tag"]
+                        GA4Tag["GA4 Tag"]
+                        PostHogJS["PostHog JS Snippet"]
+                    end
+                end
+            end
+        
+        %% --- Define the Processing Pipeline ---
+        subgraph "Processing"
+            subgraph "Orchestration & Ingestion"
+                direction TB
+                Dagster["Dagster+<br/>Orchestrator"]
+                Airbyte["Airbyte Cloud<br/>Ingestion"]
+            end
+
+            
+
+            subgraph "Transformation & CI/CD"
+                dbt["dbt Core<br/>Transformation"]
+                GitHub["GitHub<br/>Code Repo & CI/CD"]
+                Docs["dbt Docs<br/>(Hosted on GitHub Pages)"]
+            end
+        end
+    end
+
+
+    subgraph "Data Warehouse"
+        MotherDuck[("MotherDuck<br/>Warehouse")]
+        RawData[[Schema: raw_data]]
+        CleanData[[Schemas: staging, marts]]
+        MotherDuck --- RawData & CleanData
+    end
+
+    
+
+    subgraph "Consumption & Business Value"
+        BI["BI Tool<br/>(Tableau, Looker, etc)"]
+        
+        Analysis["Python Analysis<br/>(Jupyter/Hex)"]
+        
+        subgraph "Key Outputs"
+            SCV[Single Customer View]
+            MMM[Marketing Mix Model]
+            Metrics[New vs. Returning, nCAC, LTV]
+        end
+    end
+
+    %% --- Define The Data & Control Flows ---
+
+    %% Marketing Stack Flow
+    Acquisition -- "Generate Traffic<br/>(UTM Parameters)" --> Website
+    Website -- "Tracks User Journey using GTM Setup" --> Conversion
+    
+    %% Source to Pixel
+    
+    Acquisition -- "Tracking Pixel" --> Pixel
+    Conversion --> Tag 
+    Pixel & Tag -- "Tag/Event Tracking Management" --> GTM --> Website
+
+    %% Sources to Airbyte
+    Acquisition <-- "Send Performance Data<br/>(Naming Convention)" --> Airbyte
+    Website <-- "Send Transactional Data<br/>(Schema)" --> Airbyte
+    Marketplace <-- "Send Sales Data<br/>(Schema)" --> Airbyte
+    Conversion <-- "Send Session Data<br/>(Schema)" --> Airbyte
+
+
+    %% On-Site Tracking Flow
+    
+    %% Orchestration & CI/CD Flow
+    Dagster -- "#1. Triggers Sync Job" --> Airbyte
+    Dagster -- "#3. Triggers dbt Run" --> dbt
+    
+    %% Sources to Airbyte Flow
+    
+
+    %% Main Data Ingestion Flow (to Airbyte)
+    Stack --> Airbyte
+    
+    Airbyte -- "#2. Loads Raw Data" --> RawData
+    
+    %% Transformation & Consumption Flow
+    dbt -- "Reads From" --> RawData
+    dbt -- "Writes Clean Tables To" --> CleanData
+    CleanData -- "Data Source For" --> BI & Analysis
+    BI --> SCV & Metrics
+    Analysis --> MMM
+    
+    %% Documentation Flow
+    dbt -- "Generates Docs" --> Docs
+    GitHub -- "Deploys Docs Website" --> Docs
