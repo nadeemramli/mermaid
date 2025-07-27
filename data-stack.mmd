@@ -23,6 +23,7 @@ graph TD
                     subgraph Conversion["Conversion"]
                         GA4["Google Analytics<br/>(GA4)"]
                         PostHog[PostHog Cloud]
+                        PostHogID["PostHog Identify<br/>(Anonymous → Known User)"]
                     end
                     
                     Website["Website<br/>(Shopify/WordPress)"]
@@ -61,24 +62,79 @@ graph TD
 
     subgraph "Data Warehouse"
         MotherDuck[("MotherDuck<br/>Warehouse")]
-        RawData[[Schema: raw_data]]
-        CleanData[[Schemas: staging, marts]]
-        MotherDuck --- RawData & CleanData
+        
+        subgraph RawSchema["Raw Schema"]
+            RawData[[Schema: raw_data<br/>Landing Zone]]
+        end
+        
+        subgraph StagingSchema["Staging Schema"]
+            direction TB
+            StagingModels["Staging Models<br/>• stg_posthog__events<br/>• stg_posthog__persons<br/>• stg_shopify__orders<br/>• stg_shopify__customers"]
+        end
+        
+        subgraph MartsSchema["Marts Schema"]
+            direction TB
+            subgraph "Intermediate Models"
+                IdentityMap["int_customer_identity_map<br/>(dbt Identity Stitching)<br/>Merges: PostHog IDs + Shopify IDs + Email"]
+                IdentityGraph["int_identity_graph<br/>(PostHog → Known User Mapping)"]
+            end
+            
+            subgraph "Fact Tables"
+                CustomerEvents["fct_customer_events<br/>(Unified Event Stream)"]
+                MarketingMix["fct_marketing_mix_daily<br/>(MMM Input Table)"]
+                AdsPerformance["fct_ads_performance<br/>(Unified Performance)"]
+                Sales["fct_sales<br/>(Product Analysis)"]
+            end
+            
+            subgraph "Dimension Tables"
+                Customers["dim_customers<br/>(Single Customer View)"]
+            end
+        end
+        
+        MotherDuck --- RawSchema
+        RawSchema --- StagingSchema
+        StagingSchema --- MartsSchema
     end
 
-    
+    subgraph "MCP Infrastructure"
+        direction TB
+        subgraph "MCP Server"
+            MCPApp["Python Server<br/>(FastAPI/Flask)<br/>MCP Implementation"]
+        end
+        
+        subgraph "MCP Tools & Security"
+            QueryTool["query_motherduck Tool<br/>• Receives SQL from LLM<br/>• Connects to MotherDuck<br/>• Security: ONLY marts schema"]
+            SecurityGuard["Schema Access Control<br/>❌ raw_data<br/>❌ staging<br/>✅ marts only"]
+        end
+        
+        subgraph "MCP Client Interface"
+            ClientUI["Custom Client<br/>(Web/CLI Interface)"]
+            LLMEngine["LLM Engine<br/>(ChatGPT/Claude API)"]
+        end
+    end
+
+    subgraph "Traditional Data Access"
+        TraditionalAPI["Traditional API Access<br/>(SQL, REST, JDBC)"]
+    end
 
     subgraph "Consumption & Business Value"
         BI["BI Tool<br/>(Tableau, Looker, etc)"]
         
         Analysis["Python Analysis<br/>(Jupyter/Hex)"]
         
-        subgraph "Key Outputs"
+        subgraph "Chat with Data"
+            NLQueries["Natural Language Queries<br/>• 'Top 5 products last month?'<br/>• 'Customer churn rate by cohort?'<br/>• 'Attribution for Meta vs Google?'"]
+        end
+    end
+
+    subgraph "Key Outputs"
             SCV[Single Customer View]
             MMM[Marketing Mix Model]
             Metrics[New vs. Returning, nCAC, LTV]
+            CreativeAnalysis[Creative Performance Analysis]
+            ProductAnalysis[Product & Inventory Strategy]
+            CustomerJourney[User Journey Optimization]
         end
-    end
 
     %% --- Define The Data & Control Flows ---
 
@@ -92,33 +148,57 @@ graph TD
     Conversion --> Tag 
     Pixel & Tag -- "Tag/Event Tracking Management" --> GTM --> Website
 
+    %% PostHog Identity Flow
+    Website -- "User Actions<br/>(Login, Signup, etc)" --> PostHogID
+    PostHogID -- "Links Anonymous → Known" --> PostHog
+
     %% Sources to Airbyte
     Acquisition <-- "Send Performance Data<br/>(Naming Convention)" --> Airbyte
     Website <-- "Send Transactional Data<br/>(Schema)" --> Airbyte
     Marketplace <-- "Send Sales Data<br/>(Schema)" --> Airbyte
     Conversion <-- "Send Session Data<br/>(Schema)" --> Airbyte
 
-
-    %% On-Site Tracking Flow
-    
     %% Orchestration & CI/CD Flow
     Dagster -- "#1. Triggers Sync Job" --> Airbyte
     Dagster -- "#3. Triggers dbt Run" --> dbt
     
-    %% Sources to Airbyte Flow
-    
-
-    %% Main Data Ingestion Flow (to Airbyte)
-    Stack --> Airbyte
-    
+    %% Data Pipeline Flow
     Airbyte -- "#2. Loads Raw Data" --> RawData
     
-    %% Transformation & Consumption Flow
+    %% dbt Transformation Flow
     dbt -- "Reads From" --> RawData
-    dbt -- "Writes Clean Tables To" --> CleanData
-    CleanData -- "Data Source For" --> BI & Analysis
-    BI --> SCV & Metrics
-    Analysis --> MMM
+    dbt -- "Creates Staging Models" --> StagingSchema
+    dbt -- "Creates Marts Models" --> MartsSchema
+    dbt -- "Code Quality Checks" --> GitHub
+    
+    %% Identity Stitching Flow
+    StagingModels -- "PostHog Identity Data" --> IdentityGraph
+    StagingModels -- "Cross-Platform Stitching" --> IdentityMap
+    IdentityGraph -- "Feeds Identity Resolution" --> IdentityMap
+    IdentityMap -- "Enables" --> CustomerEvents & Customers
+    StagingModels -- "Aggregates Into" --> MarketingMix & AdsPerformance & Sales
+    
+    %% Data Access Flow - Traditional
+    MotherDuck -- "Direct SQL/JDBC" --> TraditionalAPI
+    TraditionalAPI -- "Standard Connections" --> BI & Analysis
+    
+    %% MCP Data Flow
+    MartsSchema -- "Secure Token Access" --> QueryTool
+    QueryTool -- "Executes SQL" --> SecurityGuard
+    SecurityGuard -- "Validates & Runs Query" --> MCPApp
+    MCPApp -- "MCP Protocol" --> LLMEngine
+    LLMEngine -- "AI-Generated SQL" --> MCPApp
+    MCPApp -- "Query Results" --> LLMEngine
+    
+    %% MCP User Flow
+    ClientUI -- "Natural Language Input" --> LLMEngine
+    LLMEngine -- "Human-Readable Response" --> ClientUI
+    ClientUI --> NLQueries
+    
+    %% Business Value Generation
+    BI --> SCV & Metrics & CreativeAnalysis & ProductAnalysis
+    Analysis --> MMM & CustomerJourney
+    NLQueries --> SCV & Metrics & CreativeAnalysis & ProductAnalysis & CustomerJourney
     
     %% Documentation Flow
     dbt -- "Generates Docs" --> Docs
